@@ -113,6 +113,8 @@ func (h *SyscallHandler) HandleExit() {
 		h.handleOpenatExit()
 	case SYS_OPENAT:
 		h.handleOpenatExit()
+	case SYS_GETDENTS64:
+		h.handleGetdents64Exit()
 	case SYS_DUP:
 		h.handleDupExit()
 	case SYS_DUP2, SYS_DUP3:
@@ -364,38 +366,58 @@ func (h *SyscallHandler) handleGetdents64Entry() {
 		return
 	}
 
-	debugf("getdents64: fd=%d path=%q", fd, vfsPath)
+	debugf("getdents64 entry: fd=%d path=%q bufAddr=%x count=%d", fd, vfsPath, bufAddr, count)
 
-	entries, err := h.tracer.vfs.ReadDir(vfsPath)
+	h.proc.pendingGetdents = &pendingGetdents{
+		fd:      fd,
+		bufAddr: bufAddr,
+		count:   count,
+		vfsPath: vfsPath,
+	}
+}
+
+func (h *SyscallHandler) handleGetdents64Exit() {
+	if h.proc.pendingGetdents == nil {
+		return
+	}
+
+	pending := h.proc.pendingGetdents
+	h.proc.pendingGetdents = nil
+
+	entries, err := h.tracer.vfs.ReadDir(pending.vfsPath)
 	if err != nil {
-		debugf("getdents64: ReadDir(%q) error: %v (errno=%d)", vfsPath, err, errnoFromError(err))
-		h.skipSyscall(errnoFromError(err))
+		debugf("getdents64 exit: ReadDir(%q) error: %v", pending.vfsPath, err)
+		setRetval(h.regs, uint64(errnoFromError(err)))
+		syscall.PtraceSetRegs(h.proc.pid, h.regs)
 		return
 	}
 
-	debugf("getdents64: ReadDir(%q) returned %d entries, bufsize=%d", vfsPath, len(entries), count)
+	debugf("getdents64 exit: ReadDir(%q) returned %d entries, bufsize=%d", pending.vfsPath, len(entries), pending.count)
 
-	pos := h.tracer.fdTable.GetDirPos(fd)
+	pos := h.tracer.fdTable.GetDirPos(pending.fd)
 	if pos >= len(entries) {
-		debugf("getdents64: pos=%d >= len=%d, returning 0", pos, len(entries))
-		h.skipSyscall(0)
+		debugf("getdents64 exit: pos=%d >= len=%d, returning 0", pos, len(entries))
+		setRetval(h.regs, 0)
+		syscall.PtraceSetRegs(h.proc.pid, h.regs)
 		return
 	}
 
-	buf := make([]byte, count)
+	buf := make([]byte, pending.count)
 	offset := 0
 	entriesRead := 0
 
-	for i := pos; i < len(entries) && offset < count; i++ {
+	streamOff := int64(0)
+	for i := pos; i < len(entries) && offset < pending.count; i++ {
 		entry := &entries[i]
 		reclen := (19 + len(entry.Name) + 1 + 7) & ^7
 
-		if offset+reclen > count {
+		if offset+reclen > pending.count {
 			break
 		}
 
 		binary.LittleEndian.PutUint64(buf[offset:], entry.Ino)
-		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(entry.Offset))
+		streamOff += int64(reclen)
+		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(streamOff))
 		binary.LittleEndian.PutUint16(buf[offset+16:], uint16(reclen))
 		buf[offset+18] = entry.Type
 		copy(buf[offset+19:], entry.Name)
@@ -406,12 +428,18 @@ func (h *SyscallHandler) handleGetdents64Entry() {
 	}
 
 	if offset > 0 {
-		WriteBytes(h.proc.pid, bufAddr, buf[:offset])
+		if err := WriteBytes(h.proc.pid, pending.bufAddr, buf[:offset]); err != nil {
+			debugf("getdents64 exit: WriteBytes failed: %v", err)
+			setRetval(h.regs, uint64(errnoFromError(syscall.EIO)))
+			syscall.PtraceSetRegs(h.proc.pid, h.regs)
+			return
+		}
 	}
 
-	h.tracer.fdTable.SetDirPos(fd, pos+entriesRead)
-	debugf("getdents64: wrote %d entries, %d bytes", entriesRead, offset)
-	h.skipSyscall(int64(offset))
+	h.tracer.fdTable.SetDirPos(pending.fd, pos+entriesRead)
+	debugf("getdents64 exit: wrote %d entries, %d bytes", entriesRead, offset)
+	setRetval(h.regs, uint64(int64(offset)))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
 func (h *SyscallHandler) handleMkdiratEntry() {

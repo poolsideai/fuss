@@ -80,19 +80,18 @@ func WriteBytes(pid int, addr uintptr, data []byte) error {
 	offset := int(addr) % wordSize
 	if offset != 0 {
 		alignedAddr := addr - uintptr(offset)
-		word, err := syscall.PtracePeekData(pid, alignedAddr, nil)
+		var wordBytes [8]byte
+		_, err := syscall.PtracePeekData(pid, alignedAddr, wordBytes[:])
 		if err != nil {
 			return err
 		}
-
-		wordBytes := (*[8]byte)(unsafe.Pointer(&word))[:]
 		toCopy := wordSize - offset
 		if toCopy > len(data) {
 			toCopy = len(data)
 		}
 		copy(wordBytes[offset:offset+toCopy], data[:toCopy])
 
-		_, err = syscall.PtracePokeData(pid, alignedAddr, wordBytes)
+		_, err = syscall.PtracePokeData(pid, alignedAddr, wordBytes[:])
 		if err != nil {
 			return err
 		}
@@ -113,15 +112,14 @@ func WriteBytes(pid int, addr uintptr, data []byte) error {
 	}
 
 	if len(data) > 0 {
-		word, err := syscall.PtracePeekData(pid, addr, nil)
+		var wordBytes [8]byte
+		_, err := syscall.PtracePeekData(pid, addr, wordBytes[:])
 		if err != nil {
 			return err
 		}
-
-		wordBytes := (*[8]byte)(unsafe.Pointer(&word))[:]
 		copy(wordBytes[:len(data)], data)
 
-		_, err = syscall.PtracePokeData(pid, addr, wordBytes)
+		_, err = syscall.PtracePokeData(pid, addr, wordBytes[:])
 		if err != nil {
 			return err
 		}

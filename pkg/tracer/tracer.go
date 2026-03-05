@@ -43,16 +43,24 @@ type pendingChdir struct {
 	fd   int
 }
 
+type pendingGetdents struct {
+	fd      int
+	bufAddr uintptr
+	count   int
+	vfsPath string
+}
+
 type ProcessState struct {
-	pid          int
-	inSyscall    bool
-	cwd          string
-	fdPaths      map[int]string
-	pendingOpen  *pendingOpen
-	pendingDup   *pendingDup
-	pendingChdir *pendingChdir
-	attached     bool
-	skipResult   *int64
+	pid             int
+	inSyscall       bool
+	cwd             string
+	fdPaths         map[int]string
+	pendingOpen     *pendingOpen
+	pendingDup      *pendingDup
+	pendingChdir    *pendingChdir
+	pendingGetdents *pendingGetdents
+	attached        bool
+	skipResult      *int64
 }
 
 func NewTracer(v vfs.VFS, mountpoint string) *Tracer {
