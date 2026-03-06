@@ -94,6 +94,10 @@ func (h *SyscallHandler) HandleEntry() {
 		h.handleChdirEntry()
 	case SYS_FCHDIR:
 		h.handleFchdirEntry()
+	case SYS_GETCWD:
+		h.handleGetcwdEntry()
+	case SYS_ACCESS:
+		h.handleAccessEntry()
 	}
 }
 
@@ -1002,6 +1006,56 @@ func (h *SyscallHandler) handleFchdirExit() {
 		logChdir(SYS_FCHDIR, h.proc.cwd)
 		debugf("fchdir: cwd now %q", h.proc.cwd)
 	}
+}
+
+func (h *SyscallHandler) handleGetcwdEntry() {
+	bufAddr := uintptr(arg0(h.regs))
+	size := int(arg1(h.regs))
+
+	if bufAddr == 0 || size <= 0 {
+		h.skipSyscall(negErrno(syscall.EINVAL))
+		return
+	}
+
+	cwd := h.proc.cwd
+	if cwd == "" {
+		cwd = "/"
+	}
+
+	data := append([]byte(cwd), 0)
+	if len(data) > size {
+		h.skipSyscall(negErrno(syscall.ERANGE))
+		return
+	}
+
+	if err := WriteBytes(h.proc.pid, bufAddr, data); err != nil {
+		h.skipSyscall(negErrno(syscall.EFAULT))
+		return
+	}
+
+	h.skipSyscall(int64(len(data)))
+}
+
+func (h *SyscallHandler) handleAccessEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.ResolvePath(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
 func errnoFromError(err error) int64 {

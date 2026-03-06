@@ -9,3 +9,12 @@ build:
 
 clean:
 	rm -f fuss
+
+gittest:
+	./gittest.sh
+
+release: clean mini mini-cross-arm
+	sha256sum fuss_amd64 fuss_arm64
+
+clean:
+	rm -f fuss_amd64 fuss_arm64

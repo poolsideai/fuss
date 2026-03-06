@@ -76,6 +76,8 @@ func syscallName(sysno uint64) string {
 		return "stat"
 	case SYS_LSTAT:
 		return "lstat"
+	case SYS_ACCESS:
+		return "access"
 	case SYS_NEWFSTATAT:
 		return "newfstatat"
 	case SYS_GETDENTS64:
@@ -128,6 +130,8 @@ func syscallName(sysno uint64) string {
 		return "execve"
 	case SYS_EXECVEAT:
 		return "execveat"
+	case SYS_GETCWD:
+		return "getcwd"
 	case SYS_CHDIR:
 		return "chdir"
 	case SYS_FCHDIR:

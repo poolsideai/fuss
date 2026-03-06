@@ -8,10 +8,12 @@ const (
 	SYS_STAT       = 4
 	SYS_FSTAT      = 5
 	SYS_LSTAT      = 6
+	SYS_ACCESS     = 21
 	SYS_DUP        = 32
 	SYS_DUP2       = 33
 	SYS_GETPID     = 39
 	SYS_EXECVE     = 59
+	SYS_GETCWD     = 79
 	SYS_CHDIR      = 80
 	SYS_FCHDIR     = 81
 	SYS_RMDIR      = 84

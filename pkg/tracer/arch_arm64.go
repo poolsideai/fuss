@@ -4,6 +4,7 @@ import "syscall"
 
 const (
 	SYS_GETXATTR   = 8
+	SYS_GETCWD     = 17
 	SYS_LGETXATTR  = 9
 	SYS_LISTXATTR  = 11
 	SYS_LLISTXATTR = 12
@@ -39,6 +40,7 @@ const (
 	SYS_UNLINK   = 0xFFFF - 5
 	SYS_READLINK = 0xFFFF - 6
 	SYS_RENAMEAT = 0xFFFF - 7
+	SYS_ACCESS   = 0xFFFF - 8
 )
 
 func sysno(regs *syscall.PtraceRegs) uint64       { return regs.Regs[8] }
