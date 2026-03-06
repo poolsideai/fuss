@@ -11,6 +11,8 @@ const (
 	AT_FDCWD            = -100
 	AT_SYMLINK_NOFOLLOW = 0x100
 	AT_REMOVEDIR        = 0x200
+	F_DUPFD             = 0
+	F_DUPFD_CLOEXEC     = 1030
 
 	O_DIRECTORY = syscall.O_DIRECTORY
 )
@@ -34,6 +36,8 @@ func (h *SyscallHandler) HandleEntry() {
 	switch nr {
 	case SYS_OPEN:
 		h.handleOpenEntry()
+	case SYS_CREAT:
+		h.handleCreatEntry()
 	case SYS_OPENAT:
 		h.handleOpenatEntry()
 	case SYS_EXECVE:
@@ -50,6 +54,8 @@ func (h *SyscallHandler) HandleEntry() {
 		h.handleNewfstatatEntry()
 	case SYS_GETDENTS64:
 		h.handleGetdents64Entry()
+	case SYS_MKDIR:
+		h.handleMkdirEntry()
 	case SYS_MKDIRAT:
 		h.handleMkdiratEntry()
 	case SYS_UNLINK:
@@ -58,16 +64,28 @@ func (h *SyscallHandler) HandleEntry() {
 		h.handleRmdirEntry()
 	case SYS_UNLINKAT:
 		h.handleUnlinkatEntry()
+	case SYS_RENAME:
+		h.handleRenameEntry()
 	case SYS_RENAMEAT, SYS_RENAMEAT2:
 		h.handleRenameatEntry()
+	case SYS_LINK:
+		h.handleLinkEntry()
 	case SYS_LINKAT:
 		h.handleLinkatEntry()
+	case SYS_SYMLINK:
+		h.handleSymlinkEntry()
 	case SYS_SYMLINKAT:
 		h.handleSymlinkatEntry()
 	case SYS_READLINK:
 		h.handleReadlinkEntry()
 	case SYS_READLINKAT:
 		h.handleReadlinkatEntry()
+	case SYS_CHMOD:
+		h.handleChmodEntry()
+	case SYS_CHOWN:
+		h.handleChownEntry()
+	case SYS_LCHOWN:
+		h.handleLchownEntry()
 	case SYS_FCHMODAT:
 		h.handleFchmodatEntry()
 	case SYS_FCHOWNAT:
@@ -92,6 +110,8 @@ func (h *SyscallHandler) HandleEntry() {
 		h.handleDupEntry()
 	case SYS_DUP2, SYS_DUP3:
 		h.handleDup2Entry()
+	case SYS_FCNTL:
+		h.handleFcntlEntry()
 	case SYS_CHDIR:
 		h.handleChdirEntry()
 	case SYS_FCHDIR:
@@ -100,6 +120,18 @@ func (h *SyscallHandler) HandleEntry() {
 		h.handleGetcwdEntry()
 	case SYS_ACCESS:
 		h.handleAccessEntry()
+	case SYS_MKNOD:
+		h.handleMknodEntry()
+	case SYS_TRUNCATE:
+		h.handleTruncateEntry()
+	case SYS_UTIME:
+		h.handleUtimeEntry()
+	case SYS_UTIMES:
+		h.handleUtimesEntry()
+	case SYS_FUTIMESAT:
+		h.handleFutimesatEntry()
+	case SYS_UTIMENSAT:
+		h.handleUtimensatEntry()
 	}
 }
 
@@ -117,6 +149,8 @@ func (h *SyscallHandler) HandleExit() {
 	switch nr {
 	case SYS_OPEN:
 		h.handleOpenatExit()
+	case SYS_CREAT:
+		h.handleOpenatExit()
 	case SYS_OPENAT:
 		h.handleOpenatExit()
 	case SYS_GETDENTS64:
@@ -125,6 +159,8 @@ func (h *SyscallHandler) HandleExit() {
 		h.handleDupExit()
 	case SYS_DUP2, SYS_DUP3:
 		h.handleDup2Exit()
+	case SYS_FCNTL:
+		h.handleDupExit()
 	case SYS_CHDIR:
 		h.handleChdirExit()
 	case SYS_FCHDIR:
@@ -251,6 +287,51 @@ func (h *SyscallHandler) handleOpenEntry() {
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 
 	h.isDir = flags&O_DIRECTORY != 0
+	h.vfsPath = vfsPath
+
+	resolved := h.tracer.resolver.ResolveAt(AT_FDCWD, rawPath, h.proc.cwd, h.proc.fdPaths)
+	h.proc.pendingOpen = &pendingOpen{
+		path:    resolved,
+		isDir:   h.isDir,
+		vfsPath: vfsPath,
+	}
+}
+
+func (h *SyscallHandler) handleCreatEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+	mode := uint32(arg1(h.regs))
+	flags := syscall.O_CREAT | syscall.O_WRONLY | syscall.O_TRUNC
+
+	rawPath, _ := ReadString(h.proc.pid, pathAddr, 4096)
+	debugf("creat: path=%q mode=0%o", rawPath, mode)
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		debugf("creat: not intercepting %q", rawPath)
+		return
+	}
+
+	debugf("creat: intercepting %q -> vfs %q", rawPath, vfsPath)
+
+	realPath, err := h.tracer.vfs.ResolveForOpen(vfsPath, vfs.OpenFlags(flags), mode)
+	if err != nil {
+		debugf("creat: ResolveForOpen failed: %v", err)
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	debugf("creat: resolved to real path %q", realPath)
+
+	h.origPath = pathAddr
+	newPath, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	h.newPath = newPath
+	setArg0(h.regs, uint64(h.newPath))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+
+	h.isDir = false
 	h.vfsPath = vfsPath
 
 	resolved := h.tracer.resolver.ResolveAt(AT_FDCWD, rawPath, h.proc.cwd, h.proc.fdPaths)
@@ -472,6 +553,28 @@ func (h *SyscallHandler) handleMkdiratEntry() {
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
+func (h *SyscallHandler) handleMkdirEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareCreate(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
 func (h *SyscallHandler) handleUnlinkEntry() {
 	pathAddr := uintptr(arg0(h.regs))
 
@@ -571,6 +674,78 @@ func (h *SyscallHandler) handleRenameatEntry() {
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
+func (h *SyscallHandler) handleRenameEntry() {
+	oldPathAddr := uintptr(arg0(h.regs))
+	newPathAddr := uintptr(arg1(h.regs))
+
+	oldVfsPath, oldIntercept := h.readPathAt(AT_FDCWD, oldPathAddr)
+	newVfsPath, newIntercept := h.readPathAt(AT_FDCWD, newPathAddr)
+
+	if !oldIntercept && !newIntercept {
+		return
+	}
+
+	if oldIntercept != newIntercept {
+		h.skipSyscall(negErrno(syscall.EXDEV))
+		return
+	}
+
+	oldReal, newReal, err := h.tracer.vfs.PrepareRename(oldVfsPath, newVfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	if err != nil {
+		return
+	}
+	newAddr := uintptr(sp(h.regs)) - 8192
+	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+		return
+	}
+
+	setArg0(h.regs, uint64(oldAddr))
+	setArg1(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleLinkEntry() {
+	oldPathAddr := uintptr(arg0(h.regs))
+	newPathAddr := uintptr(arg1(h.regs))
+
+	oldVfsPath, oldIntercept := h.readPathAt(AT_FDCWD, oldPathAddr)
+	newVfsPath, newIntercept := h.readPathAt(AT_FDCWD, newPathAddr)
+
+	if !oldIntercept && !newIntercept {
+		return
+	}
+
+	if oldIntercept != newIntercept {
+		h.skipSyscall(negErrno(syscall.EXDEV))
+		return
+	}
+
+	oldReal, newReal, err := h.tracer.vfs.PrepareLink(oldVfsPath, newVfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	if err != nil {
+		return
+	}
+	newAddr := uintptr(sp(h.regs)) - 8192
+	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+		return
+	}
+
+	setArg0(h.regs, uint64(oldAddr))
+	setArg1(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
 func (h *SyscallHandler) handleLinkatEntry() {
 	oldDirfd := int(int32(arg0(h.regs)))
 	oldPathAddr := uintptr(arg1(h.regs))
@@ -633,6 +808,30 @@ func (h *SyscallHandler) handleSymlinkatEntry() {
 	}
 	setArg1(h.regs, AT_FDCWD_U64)
 	setArg2(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+	_ = targetAddr
+}
+
+func (h *SyscallHandler) handleSymlinkEntry() {
+	targetAddr := uintptr(arg0(h.regs))
+	linkpathAddr := uintptr(arg1(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, linkpathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareSymlink(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(linkpathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg1(h.regs, uint64(newAddr))
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 	_ = targetAddr
 }
@@ -767,6 +966,28 @@ func (h *SyscallHandler) handleFchmodatEntry() {
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
+func (h *SyscallHandler) handleChmodEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
 func (h *SyscallHandler) handleFchownatEntry() {
 	dirfd := int(int32(arg0(h.regs)))
 	pathAddr := uintptr(arg1(h.regs))
@@ -788,6 +1009,50 @@ func (h *SyscallHandler) handleFchownatEntry() {
 	}
 	setArg1(h.regs, uint64(newAddr))
 	setArg0(h.regs, AT_FDCWD_U64)
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleChownEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleLchownEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 
@@ -962,6 +1227,19 @@ func (h *SyscallHandler) handleDup2Exit() {
 	}
 }
 
+func (h *SyscallHandler) handleFcntlEntry() {
+	oldfd := int(arg0(h.regs))
+	cmd := int(arg1(h.regs))
+
+	switch cmd {
+	case F_DUPFD, F_DUPFD_CLOEXEC:
+		h.proc.pendingDup = &pendingDup{
+			oldfd: oldfd,
+			newfd: -1,
+		}
+	}
+}
+
 func (h *SyscallHandler) handleChdirEntry() {
 	pathAddr := uintptr(arg0(h.regs))
 	path, err := ReadString(h.proc.pid, pathAddr, 4096)
@@ -1081,6 +1359,142 @@ func (h *SyscallHandler) handleAccessEntry() {
 		return
 	}
 	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleMknodEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareCreate(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleTruncateEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleUtimeEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleUtimesEntry() {
+	pathAddr := uintptr(arg0(h.regs))
+
+	vfsPath, intercept := h.readPathAt(AT_FDCWD, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg0(h.regs, uint64(newAddr))
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleFutimesatEntry() {
+	dirfd := int(int32(arg0(h.regs)))
+	pathAddr := uintptr(arg1(h.regs))
+
+	vfsPath, intercept := h.readPathAt(dirfd, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg1(h.regs, uint64(newAddr))
+	setArg0(h.regs, AT_FDCWD_U64)
+	syscall.PtraceSetRegs(h.proc.pid, h.regs)
+}
+
+func (h *SyscallHandler) handleUtimensatEntry() {
+	dirfd := int(int32(arg0(h.regs)))
+	pathAddr := uintptr(arg1(h.regs))
+
+	vfsPath, intercept := h.readPathAt(dirfd, pathAddr)
+	if !intercept {
+		return
+	}
+
+	realPath, err := h.tracer.vfs.PrepareWrite(vfsPath)
+	if err != nil {
+		h.skipSyscall(errnoFromError(err))
+		return
+	}
+
+	newAddr, err := h.rewritePath(pathAddr, realPath)
+	if err != nil {
+		return
+	}
+	setArg1(h.regs, uint64(newAddr))
+	setArg0(h.regs, AT_FDCWD_U64)
 	syscall.PtraceSetRegs(h.proc.pid, h.regs)
 }
 

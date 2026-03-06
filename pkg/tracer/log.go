@@ -84,12 +84,30 @@ func syscallName(sysno uint64) string {
 		return "getdents64"
 	case SYS_MKDIRAT:
 		return "mkdirat"
+	case SYS_MKDIR:
+		return "mkdir"
+	case SYS_CREAT:
+		return "creat"
+	case SYS_TRUNCATE:
+		return "truncate"
+	case SYS_LINK:
+		return "link"
+	case SYS_SYMLINK:
+		return "symlink"
+	case SYS_CHMOD:
+		return "chmod"
+	case SYS_CHOWN:
+		return "chown"
+	case SYS_LCHOWN:
+		return "lchown"
 	case SYS_UNLINK:
 		return "unlink"
 	case SYS_RMDIR:
 		return "rmdir"
 	case SYS_UNLINKAT:
 		return "unlinkat"
+	case SYS_RENAME:
+		return "rename"
 	case SYS_RENAMEAT:
 		return "renameat"
 	case SYS_RENAMEAT2:
@@ -110,6 +128,16 @@ func syscallName(sysno uint64) string {
 		return "faccessat"
 	case SYS_FACCESSAT2:
 		return "faccessat2"
+	case SYS_UTIME:
+		return "utime"
+	case SYS_UTIMES:
+		return "utimes"
+	case SYS_FUTIMESAT:
+		return "futimesat"
+	case SYS_UTIMENSAT:
+		return "utimensat"
+	case SYS_MKNOD:
+		return "mknod"
 	case SYS_GETXATTR:
 		return "getxattr"
 	case SYS_LGETXATTR:
@@ -128,6 +156,8 @@ func syscallName(sysno uint64) string {
 		return "dup2"
 	case SYS_DUP3:
 		return "dup3"
+	case SYS_FCNTL:
+		return "fcntl"
 	case SYS_EXECVE:
 		return "execve"
 	case SYS_EXECVEAT:

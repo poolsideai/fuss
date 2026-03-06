@@ -10,6 +10,7 @@ const (
 	SYS_LLISTXATTR = 12
 	SYS_DUP        = 23
 	SYS_DUP3       = 24
+	SYS_FCNTL      = 25
 	SYS_MKDIRAT    = 34
 	SYS_UNLINKAT   = 35
 	SYS_SYMLINKAT  = 36
@@ -27,21 +28,35 @@ const (
 	SYS_READLINKAT = 78
 	SYS_NEWFSTATAT = 79
 	SYS_FSTAT      = 80
+	SYS_UTIMENSAT  = 88
 	SYS_GETPID     = 172
 	SYS_EXECVE     = 221
 	SYS_EXECVEAT   = 281
 	SYS_STATX      = 291
 	SYS_FACCESSAT2 = 439
 
-	SYS_OPEN     = 0xFFFF
-	SYS_STAT     = 0xFFFF - 1
-	SYS_LSTAT    = 0xFFFF - 2
-	SYS_DUP2     = 0xFFFF - 3
-	SYS_RMDIR    = 0xFFFF - 4
-	SYS_UNLINK   = 0xFFFF - 5
-	SYS_READLINK = 0xFFFF - 6
-	SYS_RENAMEAT = 0xFFFF - 7
-	SYS_ACCESS   = 0xFFFF - 8
+	SYS_OPEN      = 0xFFFF
+	SYS_STAT      = 0xFFFF - 1
+	SYS_LSTAT     = 0xFFFF - 2
+	SYS_DUP2      = 0xFFFF - 3
+	SYS_RMDIR     = 0xFFFF - 4
+	SYS_UNLINK    = 0xFFFF - 5
+	SYS_READLINK  = 0xFFFF - 6
+	SYS_RENAMEAT  = 0xFFFF - 7
+	SYS_ACCESS    = 0xFFFF - 8
+	SYS_RENAME    = 0xFFFF - 9
+	SYS_MKDIR     = 0xFFFF - 10
+	SYS_CREAT     = 0xFFFF - 11
+	SYS_LINK      = 0xFFFF - 12
+	SYS_SYMLINK   = 0xFFFF - 13
+	SYS_CHMOD     = 0xFFFF - 14
+	SYS_CHOWN     = 0xFFFF - 15
+	SYS_LCHOWN    = 0xFFFF - 16
+	SYS_TRUNCATE  = 0xFFFF - 17
+	SYS_UTIME     = 0xFFFF - 18
+	SYS_UTIMES    = 0xFFFF - 19
+	SYS_FUTIMESAT = 0xFFFF - 20
+	SYS_MKNOD     = 0xFFFF - 21
 )
 
 func sysno(regs *syscall.PtraceRegs) uint64        { return regs.Regs[8] }
