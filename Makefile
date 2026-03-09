@@ -7,9 +7,6 @@ mini-cross-arm:
 build:
 	go build ./cmd/fuss
 
-clean:
-	rm -f fuss
-
 gittest:
 	./gittest.sh
 
