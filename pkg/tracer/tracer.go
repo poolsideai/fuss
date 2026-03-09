@@ -27,6 +27,25 @@ type Tracer struct {
 	procs    map[int]*ProcessState
 }
 
+type ChildExitError struct {
+	code   int
+	signal syscall.Signal
+}
+
+func (e *ChildExitError) Error() string {
+	if e.signal != 0 {
+		return fmt.Sprintf("child terminated by signal %d", e.signal)
+	}
+	return fmt.Sprintf("child exited with status %d", e.code)
+}
+
+func (e *ChildExitError) ExitCode() int {
+	if e.signal != 0 {
+		return 128 + int(e.signal)
+	}
+	return e.code
+}
+
 type pendingOpen struct {
 	path    string
 	isDir   bool
@@ -131,10 +150,10 @@ func (t *Tracer) traceLoop(initialPid int) error {
 		if ws.Exited() || ws.Signaled() {
 			if pid == initialPid {
 				if ws.Exited() && ws.ExitStatus() != 0 {
-					childErr = fmt.Errorf("child exited with status %d", ws.ExitStatus())
+					childErr = &ChildExitError{code: ws.ExitStatus()}
 				}
 				if ws.Signaled() {
-					childErr = fmt.Errorf("child terminated by signal %d", ws.Signal())
+					childErr = &ChildExitError{signal: ws.Signal()}
 				}
 			}
 			delete(t.procs, pid)

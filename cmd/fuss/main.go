@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,6 +85,12 @@ Example:
 	rootCmd.Flags().StringVar(&whiteoutStyle, "whiteout", "", "Whiteout style: chardev or fileprefix (default: fileprefix)")
 
 	if err := rootCmd.Execute(); err != nil {
+		var exitErr interface {
+			ExitCode() int
+		}
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitCode())
+		}
 		os.Exit(1)
 	}
 }
@@ -153,5 +160,7 @@ func run(cmd *cobra.Command, args []string) error {
 	backingPaths = append(backingPaths, upperdir)
 	t := tracer.NewTracer(vfs, mountpoint, backingPaths...)
 
+	// Child process failures should propagate as exit status without printing fuss usage.
+	cmd.SilenceUsage = true
 	return t.Run(args)
 }
