@@ -112,6 +112,8 @@ func (t *Tracer) Run(args []string) error {
 }
 
 func (t *Tracer) traceLoop(initialPid int) error {
+	var childErr error
+
 	if err := syscall.PtraceSyscall(initialPid, 0); err != nil {
 		return fmt.Errorf("initial ptrace syscall failed: %w", err)
 	}
@@ -127,6 +129,14 @@ func (t *Tracer) traceLoop(initialPid int) error {
 		}
 
 		if ws.Exited() || ws.Signaled() {
+			if pid == initialPid {
+				if ws.Exited() && ws.ExitStatus() != 0 {
+					childErr = fmt.Errorf("child exited with status %d", ws.ExitStatus())
+				}
+				if ws.Signaled() {
+					childErr = fmt.Errorf("child terminated by signal %d", ws.Signal())
+				}
+			}
 			delete(t.procs, pid)
 			continue
 		}
@@ -184,7 +194,7 @@ func (t *Tracer) traceLoop(initialPid int) error {
 		}
 	}
 
-	return nil
+	return childErr
 }
 
 func (t *Tracer) handleSyscall(proc *ProcessState) {

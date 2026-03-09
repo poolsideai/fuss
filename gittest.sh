@@ -47,5 +47,34 @@ go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$moun
     git -C "$1" branch -D "$b" >/dev/null
     ! git -C "$1" rev-parse --verify "$b" >/dev/null 2>&1
   ' -- "$mountpoint"
+go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c '
+    python3 -c '"'"'
+import os, sys, tempfile
+mountpoint = sys.argv[1]
+tmpdir = tempfile.mkdtemp(prefix="fuss-fchdir-unlink-outside.", dir="/tmp")
+target = os.path.join(tmpdir, "control")
+open(target, "w").close()
+inside = os.path.join(mountpoint, "control")
+open(inside, "w").close()
+os.chdir(mountpoint)
+fd = os.open(tmpdir, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fchdir(fd)
+    os.unlink("control")
+finally:
+    os.close(fd)
+if os.path.exists(target):
+    raise SystemExit("fchdir/unlink regression: target still exists")
+if not os.path.exists(inside):
+    raise SystemExit("fchdir/unlink regression: deleted mountpoint/control instead of tmp target")
+os.unlink(inside)
+os.rmdir(tmpdir)
+'"'"' "$1"
+  ' -- "$mountpoint"
 
+set +x
+
+echo "--------------"
 echo "gittest passed"
+echo "--------------"
