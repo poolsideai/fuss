@@ -246,12 +246,38 @@ func (h *SyscallHandler) resolveDirfdPath(dirfd int) (string, bool) {
 }
 
 func (h *SyscallHandler) rewritePath(pathAddr uintptr, newPath string) (uintptr, error) {
-	stackAddr := uintptr(sp(h.regs)) - 4096
+	_ = pathAddr
+	stackAddr := h.scratchAddrFor(len(newPath)+1, 0)
 	if err := WriteString(h.proc.pid, stackAddr, newPath); err != nil {
 		debugf("rewritePath: WriteString failed: %v (addr=%x path=%q)", err, stackAddr, newPath)
 		return 0, err
 	}
 	return stackAddr, nil
+}
+
+func (h *SyscallHandler) rewritePathSlot(newPath string, slot int) (uintptr, error) {
+	stackAddr := h.scratchAddrFor(len(newPath)+1, slot)
+	if err := WriteString(h.proc.pid, stackAddr, newPath); err != nil {
+		debugf("rewritePathSlot: WriteString failed: %v (addr=%x path=%q slot=%d)", err, stackAddr, newPath, slot)
+		return 0, err
+	}
+	return stackAddr, nil
+}
+
+func (h *SyscallHandler) scratchAddrFor(size int, slot int) uintptr {
+	if size < 1 {
+		size = 1
+	}
+	alloc := alignUp(size, 16)
+	// Keep a sizable gap from current SP and separate slots to avoid clobbering
+	// argument/environment data on large rewritten paths.
+	baseGap := 16 * 1024
+	perSlot := 24 * 1024
+	return uintptr(sp(h.regs)) - uintptr(baseGap) - uintptr(slot*perSlot) - uintptr(alloc)
+}
+
+func alignUp(n, align int) int {
+	return (n + align - 1) & ^(align - 1)
 }
 
 func (h *SyscallHandler) handleOpenatEntry() {
@@ -820,12 +846,12 @@ func (h *SyscallHandler) handleRenameatEntry() {
 		return
 	}
 
-	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	oldAddr, err := h.rewritePathSlot(oldReal, 0)
 	if err != nil {
 		return
 	}
-	newAddr := uintptr(sp(h.regs)) - 8192
-	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+	newAddr, err := h.rewritePathSlot(newReal, 1)
+	if err != nil {
 		return
 	}
 
@@ -867,12 +893,12 @@ func (h *SyscallHandler) handleRenameEntry() {
 		return
 	}
 
-	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	oldAddr, err := h.rewritePathSlot(oldReal, 0)
 	if err != nil {
 		return
 	}
-	newAddr := uintptr(sp(h.regs)) - 8192
-	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+	newAddr, err := h.rewritePathSlot(newReal, 1)
+	if err != nil {
 		return
 	}
 
@@ -907,12 +933,12 @@ func (h *SyscallHandler) handleLinkEntry() {
 		return
 	}
 
-	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	oldAddr, err := h.rewritePathSlot(oldReal, 0)
 	if err != nil {
 		return
 	}
-	newAddr := uintptr(sp(h.regs)) - 8192
-	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+	newAddr, err := h.rewritePathSlot(newReal, 1)
+	if err != nil {
 		return
 	}
 
@@ -949,12 +975,12 @@ func (h *SyscallHandler) handleLinkatEntry() {
 		return
 	}
 
-	oldAddr, err := h.rewritePath(oldPathAddr, oldReal)
+	oldAddr, err := h.rewritePathSlot(oldReal, 0)
 	if err != nil {
 		return
 	}
-	newAddr := uintptr(sp(h.regs)) - 8192
-	if err := WriteString(h.proc.pid, newAddr, newReal); err != nil {
+	newAddr, err := h.rewritePathSlot(newReal, 1)
+	if err != nil {
 		return
 	}
 

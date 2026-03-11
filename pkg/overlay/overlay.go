@@ -84,7 +84,7 @@ func (fs *OverlayFS) resolve(path string) (realPath string, inUpper bool, err er
 func (fs *OverlayFS) ResolveForOpen(path string, flags vfs.OpenFlags, mode uint32) (string, error) {
 	realPath, inUpper, err := fs.resolve(path)
 
-	if flags.IsCreate() && err != nil {
+	if flags.IsCreate() && err == syscall.ENOENT {
 		if err := fs.copyUpParents(path); err != nil {
 			return "", err
 		}
@@ -339,6 +339,8 @@ func (fs *OverlayFS) copyUpParents(path string) error {
 
 		if _, err := os.Stat(upperPath); err == nil {
 			continue
+		} else if e := errnoFromPathError(err); e != syscall.ENOENT {
+			return e
 		}
 
 		realPath, _, err := fs.resolve(current)
