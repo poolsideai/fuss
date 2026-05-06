@@ -192,6 +192,18 @@ func (fs *OverlayFS) PrepareRmdir(path string) error {
 }
 
 func (fs *OverlayFS) PrepareRename(oldpath, newpath string) (string, string, error) {
+	if realNewPath, _, err := fs.resolve(newpath); err == nil {
+		info, statErr := os.Lstat(realNewPath)
+		if statErr != nil {
+			return "", "", statErr
+		}
+		if info.IsDir() {
+			newpath = filepath.Join(newpath, filepath.Base(oldpath))
+		}
+	} else if err != syscall.ENOENT {
+		return "", "", err
+	}
+
 	if err := fs.copyUp(oldpath); err != nil {
 		return "", "", err
 	}

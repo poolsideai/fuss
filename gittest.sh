@@ -26,6 +26,10 @@ go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$moun
 go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$mountpoint" -- \
   sh -c 'mkdir "$1/.fuss-mkdir-test" && test -d "$1/.fuss-mkdir-test"' -- "$mountpoint"
 go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c 'touch "$1/.fuss-mv-src" && mkdir "$1/.fuss-mv-dst" && mv "$1/.fuss-mv-src" "$1/.fuss-mv-dst" && test -f "$1/.fuss-mv-dst/.fuss-mv-src" && test -d "$1/.fuss-mv-dst"' -- "$mountpoint"
+test -d "$upper/.fuss-mv-dst"
+test -f "$upper/.fuss-mv-dst/.fuss-mv-src"
+go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$mountpoint" -- \
   sh -c 'touch "$1/.fuss-link-src" && ln "$1/.fuss-link-src" "$1/.fuss-link-dst" && test -f "$1/.fuss-link-dst"' -- "$mountpoint"
 go run ./cmd/fuss --lowerdir "$lowerdir" --upperdir "$upper" --mountpoint "$mountpoint" -- \
   sh -c ': > "$1/.fuss-creat-test" && test -f "$1/.fuss-creat-test"' -- "$mountpoint"
@@ -72,6 +76,17 @@ os.unlink(inside)
 os.rmdir(tmpdir)
 '"'"' "$1"
   ' -- "$mountpoint"
+
+lower_rename="$(mktemp -d /tmp/fuss-gittest-lower-rename.XXXXXX)"
+cleanup() {
+  rm -rf "$upper" "$mountpoint" "$lower_rename"
+}
+mkdir "$lower_rename/subdir"
+touch "$lower_rename/file1"
+go run ./cmd/fuss --lowerdir "$lower_rename" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c 'mv "$1/file1" "$1/subdir" && test -f "$1/subdir/file1" && test -d "$1/subdir"' -- "$mountpoint"
+test -d "$upper/subdir"
+test -f "$upper/subdir/file1"
 
 set +x
 
