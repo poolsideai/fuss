@@ -79,7 +79,7 @@ os.rmdir(tmpdir)
 
 lower_rename="$(mktemp -d /tmp/fuss-gittest-lower-rename.XXXXXX)"
 cleanup() {
-  rm -rf "$upper" "$mountpoint" "$lower_rename"
+  rm -rf "$upper" "$mountpoint" "$lower_rename" "$lower_copyup"
 }
 mkdir "$lower_rename/subdir"
 touch "$lower_rename/file1"
@@ -87,6 +87,27 @@ go run ./cmd/fuss --lowerdir "$lower_rename" --upperdir "$upper" --mountpoint "$
   sh -c 'mv "$1/file1" "$1/subdir" && test -f "$1/subdir/file1" && test -d "$1/subdir"' -- "$mountpoint"
 test -d "$upper/subdir"
 test -f "$upper/subdir/file1"
+
+lower_copyup="$(mktemp -d /tmp/fuss-gittest-lower-copyup.XXXXXX)"
+mkdir -p "$lower_copyup/dir"
+printf 'base\n' > "$lower_copyup/dir/file"
+
+go run ./cmd/fuss --lowerdir "$lower_copyup" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c 'printf "changed\n" > "$1/dir/file" && grep -qx changed "$1/dir/file"' -- "$mountpoint"
+grep -qx base "$lower_copyup/dir/file"
+grep -qx changed "$upper/dir/file"
+
+go run ./cmd/fuss --lowerdir "$lower_copyup" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c 'printf "new\n" > "$1/dir/newfile" && grep -qx new "$1/dir/newfile"' -- "$mountpoint"
+test -d "$upper/dir"
+grep -qx new "$upper/dir/newfile"
+test ! -e "$lower_copyup/dir/newfile"
+
+go run ./cmd/fuss --lowerdir "$lower_copyup" --upperdir "$upper" --mountpoint "$mountpoint" -- \
+  sh -c 'ln "$1/dir/file" "$1/dir/file.link" && test -f "$1/dir/file.link" && cmp "$1/dir/file" "$1/dir/file.link"' -- "$mountpoint"
+test -f "$upper/dir/file"
+test -f "$upper/dir/file.link"
+test "$(stat -c %i "$upper/dir/file")" = "$(stat -c %i "$upper/dir/file.link")"
 
 set +x
 
